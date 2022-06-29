@@ -1,0 +1,82 @@
+---
+title: "ANUClimResample"
+output: html_document
+---
+
+```{r}
+library(magrittr)
+library(terra)
+library(raster)
+library(rgdal)
+biasfile <- read.asciigrid("~/Maxent/pointbias.asc") %>% rast
+
+```
+
+
+workflow above with the terra package
+```{r}
+ANUCLIM.list1961 <- list.files("/Volumes/TOSHIBA EXT/ANUClimateV2/aus_vpd_day_v2_stable/1961/", pattern = ".flt", full.names = T)
+
+slist = ANUCLIM.list1961[1:365] #reformat file list
+
+slist.stack = c() #make empty list 
+
+ptm <- proc.time() #measure time 
+for (i in slist) {
+  slist.stack <- c(slist.stack, rast(i) %>% resample(biasfile))
+}
+proc.time() - ptm #end measure time 
+
+clim.mean = rast(slist.stack) %>% terra::mean()
+plot(clim.mean)
+
+
+```
+
+loop to average data from all years t 1960 - 1979 for vpd
+```{r}
+
+raster.mean <- function(year){
+  a = list.files(paste0("/Volumes/TOSHIBA EXT/ANUClimateV2/aus_vpd_day_v2_stable/", year,"/"), pattern = ".flt", full.names = T)
+  a = a[1:length(a)]
+  b = c()
+  for (i in a) {
+    b <- c(b, rast(i) %>% resample(biasfile))
+  }
+  rast(b) %>% terra::mean() %>% writeRaster(paste0("ANUCLIMMeans/", year,".asc"))
+}
+
+yearlist = c(1960:1979)
+
+for (i in yearlist) {
+  raster.mean(i)
+}
+
+```
+
+Average temperatures across years to make an average for 1960 - 1979
+
+```{r}
+ANUCLIM.list19601979vpd <- list.files("Maxent/ANUCLIM", pattern = ".asc", full.names = T)
+ANUCLIM19601979vpd = rast(ANUCLIM.list19601980) 
+
+daynumber = c()
+
+for (i in yearlist) {
+  a = list.files(paste0("/Volumes/TOSHIBA EXT/ANUClimateV2/aus_vpd_day_v2_stable/", i,"/"), pattern = ".flt", full.names = T)
+  daynumber = c(daynumber, a)
+}
+
+list.files
+
+
+daynumber = length(days)
+
+vpd.mean = ANUCLIM19601979vpd/(Reduce("+",daynumber)) 
+
+writeRaster(vpd.mean, "ANUCLIM19601980_mean.asc")
+
+
+
+```
+

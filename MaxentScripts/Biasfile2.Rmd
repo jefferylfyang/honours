@@ -1,0 +1,97 @@
+---
+title: "Biasfile_2"
+output: html_document
+---
+
+Load required packages
+``` {r}
+library(tidyverse)
+library(raster)
+library(sp)
+library(rgdal)
+library(spatstat)
+library(here)
+library(tools)
+```
+
+Load in environmental layers
+```{r}
+b1 <- raster(here('climdatCropAus_asc', 'clim1.asc'))
+crs(b1) <-CRS('+init=EPSG:4326')
+b2 <- raster(here('climdatCropAus_asc', 'clim2.asc'))
+crs(b2) <-CRS('+init=EPSG:4326')
+compareRaster(b1, b2)
+```
+Create blank raster for template for occurence data
+```{r}
+blank <- raster(b1)
+crs(blank) <- CRS('+init=EPSG:4326')
+```
+Load in occurrence data
+```{r}
+record.list <- list.files("pass_occurence_data/", pattern = ".csv", full.names = T)
+locations = data.frame()
+
+for (i in 1:7) {
+  temp <- fread(record.list[i], select = c("decimalLongitude", "decimalLatitude"))
+  locations <- rbind(temp, locations)
+}
+colnames(locations) <- c("lon", "lat")
+locations <- na.omit(locations)
+locations <- SpatialPoints(data.frame(lon = locations$lon, lat = locations$lat))
+crs(locations) <- CRS('+init=EPSG:4326')
+
+```
+
+Count occurences
+```{r}
+# Get count of occurrence points in each cell
+oc.ras.bin <- rasterize(locations, blank, fun = 'count', na.rm = F)
+# All cells with count >= 1 get assigned a 1 value
+oc.ras.bin[oc.ras.bin >= 1] <- 1
+# Redundancy to enforce consistent NA values
+oc.ras.bin[is.na(oc.ras.bin)] <- 0.00001
+# Mask away any water/missing data
+oc.ras.bin <- mask(oc.ras.bin, b1)
+# Match bias NA values with env. layers
+NAvalue(oc.ras.bin) <- NAvalue(b1)
+compareRaster(oc.ras.bin, b1)
+```
+
+Make a spatial mask 
+```{r}
+poly_expand <- function(ocr, exp_factor){
+return(Polygon(rbind(c(matrix(bbox(ocr), 2, 2)[1,1] - exp_factor,
+matrix(bbox(ocr), 2, 2)[2,2] + exp_factor),
+c(matrix(bbox(ocr), 2, 2)[1,1] - exp_factor,
+matrix(bbox(ocr), 2, 2)[2,1] - exp_factor),
+c(matrix(bbox(ocr), 2, 2)[1,2] + exp_factor,
+matrix(bbox(ocr), 2, 2)[2,1] - exp_factor),
+c(matrix(bbox(ocr), 2, 2)[1,2] + exp_factor,
+matrix(bbox(ocr), 2, 2)[2,2] + exp_factor),
+c(matrix(bbox(ocr), 2, 2)[1,1] - exp_factor,
+matrix(bbox(ocr), 2, 2)[2,2] + exp_factor)))
+)
+}
+p <- poly_expand(ocr = locations, exp_factor = 1)
+px <- Polygons(list(p), 1)
+spat.mask <- SpatialPolygons(list(px),
+proj4string = CRS('+init=EPSG:4326 +proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0'))
+```
+
+Applying spatial mask 
+```{r}
+# Extract new rasters by spatial mask
+b1_mod <- crop(b1, spat.mask)
+b2_mod <- crop(b2, spat.mask)
+bias.bin <- crop(oc.ras.bin, spat.mask)
+# Double-check alignment between environmental layers and bias raster
+compareRaster(b1_mod, bias.bin)
+# Write new environemntal raster information with modified names
+writeRaster(b1_mod, 'b1_modified.asc', overwrite = T)
+writeRaster(b2_mod, 'b2_modified.asc', overwrite = T)
+# Export bias layer
+writeRaster(bias.bin, 'bias_mask_bin_modified.asc', overwrite = T)
+
+```
+
