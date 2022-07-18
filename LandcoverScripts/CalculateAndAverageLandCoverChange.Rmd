@@ -1,0 +1,91 @@
+---
+title: "ChangeInLandVariables"
+output: html_document
+---
+
+```{r}
+library(ncdf4)
+library(terra) # package for spatraster manipulation
+library(raster) # package for raster manipulation
+library(rgdal) # package for geospatial analysis
+library(ggplot2) # package for plotting
+library(maptools)
+library(magrittr) #piping
+
+#Setup environment
+setwd("~/Desktop/LandCover")
+ld_states <- nc_open("LUH2_GCB2019_states.nc4")
+
+#Set extents
+lon <- ncvar_get(ld_states, "lon")
+lon[lon > 180] <- lon[lon > 180] - 360
+lat <- ncvar_get(ld_states, "lat", verbose = F)
+t <- ncvar_get(ld_states, "time")
+
+```
+
+Calculate deltas in pastr variable
+```{r}
+r2005 = pastr.array[1156,,] %>% t %>% raster(xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>%
+    flip(direction='y')
+  
+r2010 = pastr.array[1161,,] %>% t %>% raster(xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>%
+    flip(direction='y')
+
+r2015 = pastr.array[1166,,] %>% t %>% raster(xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>%
+    flip(direction='y')
+
+
+delta.pastr = overlay(r2010, r2005, fun = function(r1, r2){return(r1-r2)}) %>% 
+  crop(extent_aus) #1161 is the year codified for 2010 and 1156 is 2005
+plot(delta.pastr)
+```
+
+Calculate deltas in Maxent models between 2010 and 2005
+```{r}
+habsuit2010 = read.asciigrid("/Users/u6638201/MaxEnt/MaxentResultsLand/2010/Malurus_assimilis.asc") %>% raster
+habsuit2005 = read.asciigrid("/Users/u6638201/MaxEnt/MaxentResultsLand/2005/Malurus_assimilis.asc") %>% raster()
+delta.suit = overlay(habsuit2010, habsuit2005, fun = function(r1, r2){return(r1-r2)})
+```
+
+Calculate averages of landcover from 1900 - 1980
+```{r}
+extent_aus <- ext(110, 158, -46, -9)
+yearlist = c(1900:1979)
+world = ext(min(lon), max(lon), min(lat), max(lat))
+temp = raster("/Users/u6638201/MaxEnt/1960-1979EnvData/ANUCLIM19601979vpd_mean.asc")
+  
+#function to retrieve rasterlayers from 1900 to 1979
+get.raster <- function(x,y) {
+  a = x- 849
+  y[a,,] %>% t %>% rast() %>% flip(direction='v') %>% set.ext(world) %>% crop(extent_aus)
+}
+
+#function to take average of rasters in a list
+varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
+mean.list = c()
+
+#for loop to run the whole thing and produce a list with averages of each variable from 1900 - 1979
+for (i in varlist) {
+  array <- ncvar_get(ld_states, i)
+  rasterlist = lapply(yearlist, get.raster, array)
+  raster.mean <- rast(rasterlist) %>% mean() %>% raster %>% resample(temp)
+  mean.list <- c(mean.list, raster.mean)
+}
+
+
+
+#write all means (in rasterlayer format) to files
+names(mean.list) <- varlist
+namelist = c(1:9)
+
+for (i in namelist) {
+  NAvalue(mean.list[[1]]) <- -9999
+}
+
+for (i in namelist) {
+  writeRaster(mean.list[[i]], paste0("~/Maxent/1960-1979EnvData/", names(mean.list[i]), ".asc"), overwrite = T)
+}
+
+```
+

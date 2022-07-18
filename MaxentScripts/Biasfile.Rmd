@@ -1,3 +1,9 @@
+---
+title: "Biasfile_1"
+output: html_document
+---
+
+This R script creates a biasfile for use with Maxent by creating a density layer using the kde2d function, it also includes code to run Maxent within R, but the current version of dismo does not allow for Maxent to be run within R while factoring a biasfile.   
 
 ```{r}
 Sys.setenv(JAVA_HOME = '/Library/Java/JavaVirtualMachines/jdk-11.0.15.1.jdk/Contents/Home')
@@ -8,48 +14,48 @@ library(magrittr) # for piping functionality, i.e., %>%
 library(maptools) # reading shapefiles
 library(rgeos)
 library(rJava)
-library(data.table)
+library(data.table) #read in location data easier from raw ALA downloads
 ```
   
-
+Read in occurence data
 ```{r}
-
-locations = data.frame()
-record.list <- list.files("pass_occurence_data/", pattern = ".csv", full.names = T)
-
-for (i in 1:7) {
-  temp <- fread(record.list[i], select = c("decimalLongitude", "decimalLatitude"))
-  locations <- rbind(temp, locations)
-}
-
 locations <- fread("passerine_records_1970_onwards.csv", select = c("decimalLongitude", "decimalLatitude"))
 ```
 
+Clean up reformat data
 ```{r}
 locations <- na.omit(locations)
-colnames(locations) <- c("lon", "lat")
-climdat <- brick("clim/wc2.1_2.5m_bio_1.tif")
-occur.ras <- rasterize(locations, climdat, 1) #b1 here is a climdat file 
+colnames(locations) <- c("lon", "lat") #rename colnames for rasterize function 
+climdat <- brick("~/MaxEnt/1960-1979EnvData/ANUCLIM19601979maxt_mean.asc") #use arbitrary climate data file as a template for rasterize
+occur.ras <- rasterize(locations, climdat, 1) 
 plot(occur.ras)
 ```
 
+Crop to Australia and reformat for kde2d function 
 ```{r}
 extent_aus <- c(110, 158, -46, -9)
 occur.ras<- crop(occur.ras, extent_aus)
+
+presences <- which(values(occur.ras) == 1) 
+pres.locs <- coordinates(occur.ras)[presences, ]
 ```
 
-
+Create biasfile
 ```{r}
-presences <- which(values(occur.ras) == 1)
-pres.locs <- coordinates(occur.ras)[presences, ]
 
 dens <-kde2d(pres.locs[,1], pres.locs[,2],
              n = c(nrow(occur.ras), ncol(occur.ras)))
 dens %>%
   raster %>%
-  resample(b1, method="bilinear") %>% #b1 here is a raster file of climate data
-  crop(extent(b1)) %>%
+  resample(climdat, method="bilinear") %>% 
+  crop(extent_aus) %>%
   writeRaster('biasfile.asc')
+
+```
+
+Run Maxent (currently does not work)
+```{r}
 biasfile <- raster("biasfile.asc")
 mod1 <- maxent(b1, locations, args = "biasfile=biasfile")
 ```
+

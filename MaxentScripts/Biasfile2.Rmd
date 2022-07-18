@@ -3,6 +3,8 @@ title: "Biasfile_2"
 output: html_document
 ---
 
+This R script creates a biasfile for use with Maxent by creating a raster layer from point data. 
+
 Load required packages
 ``` {r}
 library(tidyverse)
