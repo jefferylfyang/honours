@@ -1,0 +1,103 @@
+---
+title: "LandCoverVariableExtract"
+output: html_document
+---
+
+```{r}
+library(ncdf4)
+library(raster) # package for raster manipulation
+library(rgdal) # package for geospatial analysis
+library(ggplot2) # package for plotting
+
+```
+
+Set up environment
+```{r}
+setwd("~/Desktop/LandCover")
+ld_states <- nc_open("LUH2_GCB2019_states.nc4")
+lon <- ncvar_get(ld_states, "lon")
+lon[lon > 180] <- lon[lon > 180] - 360
+lat <- ncvar_get(ld_states, "lat", verbose = F)
+t <- ncvar_get(ld_states, "time")
+extent_aus <- c(110, 158, -46, -9) #extent for cropping to Australia
+
+fillvalue <- ncatt_get(ld_states, "primf", "_FillValue")
+biasfile <- read.asciigrid("~/MaxEnt/biasfile_passerine_preserved.asc") %>% raster
+
+```
+
+Function to extract and write data from one year from a specific variable 
+```{r}
+varas <- function(var, year) {
+  year1 <- year - 849
+  fillvalue <- ncatt_get(ld_states, var, "_FillValue")
+  var.array <- ncvar_get(ld_states, var) 
+  var.array[var.array == fillvalue$value] <- NA
+  var.slice <- var.array[year1, ,]
+  ras <- raster(t(var.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>%
+    flip(direction='y') %>%
+    crop(extent_aus) %>%
+    resample(biasfile) %>%
+    writeRaster(paste0("MaxentLandDataRaw/landdat", var, year, ".asc"))
+}
+```
+
+make all files
+```{r}
+varas("secdf", 2010)
+varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
+years <- c(2011:2018)
+
+for (i in years) {
+  lapply(varlist, varas, year = i)
+}
+
+urban <- read.asciigrid("MaxentLandDataRaw/landdaturban1980.asc") %>% raster %>% resample(biasfile)
+
+writeRaster(urban, "MaxentLandDataRaw/urbanconverted.asc")
+
+```
+
+Trying to rewrite function above using pipes
+```{r}
+
+fillvalue <- ncatt_get(ld_states, "primf", "_FillValue")
+primf.array <- ncvar_get(ld_states, "primf")
+primf.array[primf.array == fillvalue$value] <- NA
+
+primf.array[230, ,] %>%
+  raster(xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>%
+  flip(direction='y') %>%
+  crop(extent_aus) %>%
+  #projectRaster(res=30, crs=projection) #%>%
+  extend(extent_aus, value=NA) %>%
+  writeRaster(paste0("landdat.asc"))
+  
+elev <- extend(projectRaster(raster("elevation.tif"), 
+               res=30, crs=projection), ext, value=NA)
+writeRaster(elev, filename="elev_output.asc", overwrite=TRUE)
+```
+
+Average 
+```{r}
+
+primfstack = stack(primf.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+primfstack <- na.omit(primfbrick)
+primf.mean <- calc(primfbrick, mean)
+primf.mean
+
+locations = data.frame()
+record.list <- list.files("pass_occurence_data/", pattern = ".csv", full.names = T)
+
+for (i in 1:7) {
+  temp <- fread(record.list[i], select = c("decimalLongitude", "decimalLatitude"))
+  locations <- rbind(temp, locations)
+}
+  
+locations <- na.omit(locations)
+colnames(locations) <- c("lon", "lat")
+occur.ras <- rasterize(locations, b1, 1)
+extent_aus <- c(110, 158, -46, -9)
+occur.ras<- crop(occur.ras, extent_aus)
+```
+

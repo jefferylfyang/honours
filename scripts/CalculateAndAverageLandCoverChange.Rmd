@@ -65,6 +65,7 @@ get.raster <- function(x,y) {
 varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
 mean.list = c()
 
+
 #for loop to run the whole thing and produce a list with averages of each variable from 1900 - 1979
 for (i in varlist) {
   array <- ncvar_get(ld_states, i)
@@ -72,8 +73,6 @@ for (i in varlist) {
   raster.mean <- rast(rasterlist) %>% mean() %>% raster %>% resample(temp)
   mean.list <- c(mean.list, raster.mean)
 }
-
-
 
 #write all means (in rasterlayer format) to files
 names(mean.list) <- varlist
@@ -85,6 +84,33 @@ for (i in namelist) {
 
 for (i in namelist) {
   writeRaster(mean.list[[i]], paste0("~/Maxent/1960-1979EnvData/", names(mean.list[i]), ".asc"), overwrite = T)
+}
+
+```
+
+Calculate average of Landcover from 1980 - 1984
+```{r}
+yearlist1 = c(1980:1984)
+
+#for loop to run the whole thing and produce a list with averages of each variable from 1980 - 1984
+mean.list = c()
+for (i in varlist) {
+  array <- ncvar_get(ld_states, i)
+  rasterlist = lapply(yearlist1, get.raster, array)
+  raster.mean <- rast(rasterlist) %>% mean() %>% raster %>% resample(temp)
+  mean.list <- c(mean.list, raster.mean)
+}
+
+#write all means (in rasterlayer format) to files
+names(mean.list) <- varlist
+namelist = c(1:9)
+
+for (i in namelist) {
+  NAvalue(mean.list[[1]]) <- -9999
+}
+
+for (i in namelist) {
+  writeRaster(mean.list[[i]], paste0("~/Maxent/1980-1984EnvData/", names(mean.list[i]), ".asc"), overwrite = T)
 }
 
 ```

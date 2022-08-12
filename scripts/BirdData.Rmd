@@ -50,7 +50,7 @@ colnames(bird_data1960) <- c("species", "longitude", "latitude")
 bird_data1960 <- na.omit(bird_data1960) #omit NA's
 
 #thin and write
-thin(bird_data1960, "latitude", "longitude", "species", 30, 1, out.dir = "~/Desktop/Maxent/ThinnedBirdData/", out.base = "combined_1960_1979_30km")
+thin(bird_data1960, "latitude", "longitude", "species", 100, 1, out.dir = "~/Desktop/Maxent/ThinnedBirdData/", out.base = "combined_1960_1979_100km")
 
 #make for variations on thinning
 distance = c(0, 10, 20, 30, 40, 50)
@@ -93,5 +93,15 @@ write.csv(maxentResults,"~/Desktop/Maxent/Results/combined_results.csv")
 
 ```
 
+```{r}
+#Do same for 1960-1979
+bird_data1960 <- fread("/Users/u6638201/Desktop/BirdDat/combined_LA_1960_1979_obs/combined_LA_1960_1979_obs.csv", select = c("decimalLongitude", "decimalLatitude")) %>% mutate(species = "Malurus", .before = "decimalLongitude")
+colnames(bird_data1960) <- c("species", "longitude", "latitude")
+bird_data1960 <- na.omit(bird_data1960) #omit NA's
+
+#thin and write
+thin(bird_data1960, "latitude", "longitude", "species", 50, 1, out.dir = "~/Maxent/BirdData/", out.base = "combined_1960_1979_50km_obs")
+
+```
 
 

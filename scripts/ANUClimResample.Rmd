@@ -1,0 +1,113 @@
+---
+title: "ANUClimResample"
+output: html_document
+---
+
+```{r}
+library(magrittr)
+library(terra)
+library(raster)
+library(rgdal)
+biasfile <- read.asciigrid("~/Maxent/biasfile_passerine_preserved.asc") %>% rast
+
+```
+
+
+workflow with the terra package
+```{r}
+maxt.list1961 <- list.files("/Volumes/Elements SE/ANUClimateV2/aus_maxt_day_v2_stable/1961/", pattern = ".flt", full.names = T)
+
+slist = maxt.list1961[1:365] #reformat file list
+
+slist.stack = c() #make empty list 
+
+ptm <- proc.time() #measure time 
+for (i in slist) {
+  slist.stack <- c(slist.stack, rast(i) %>% resample(biasfile))
+}
+proc.time() - ptm #end measure time 
+
+clim.mean = rast(slist.stack) %>% terra::mean()
+plot(clim.mean)
+
+
+```
+
+loop to average data from all years t 1960 - 1979 for rain
+```{r}
+
+yearraster.mean <- function(year){
+  a = list.files(paste0("/Volumes/Elements SE/ANUClimateV2/aus_mint_day_v2_stable/", year), pattern = ".flt", full.names = T)
+  a = a[1:length(a)]
+  b = c()
+  for (i in a) {
+    b <- c(b, rast(i) %>% resample(biasfile))
+  }
+  rast(b) %>% terra::mean() %>% writeRaster(paste0("ANUCLIMMeans/mint/", year,".asc"))
+}
+
+yearlist = c(1960:1979)
+
+for (i in yearlist) {
+  years.mean(i)
+}
+
+```
+
+Average values across years to make an average for 1960 - 1979
+
+```{r}
+decaderast.mean <- function(x) {list <- list.files(paste0("/Users/u6638201/Desktop/Maxent/ANUCLIMMeans/", x), pattern = ".asc$", full.names = T)
+mean = rast(list) %>% terra::mean() %>% raster()
+x[is.na(x)] <- -9999
+writeRaster(mean, paste0("ANUCLIM19601979", x, "_mean.asc"), overwrite = TRUE)
+}
+
+
+rast.mean("vpd") 
+rast.mean("mint")
+rast.mean("maxt")
+rast.mean("rain")
+```
+
+
+Average values from later years to make layers for projection based on climate from 1980 - 1984 
+```{r}
+years.mean <- function(year, var){
+  a = list.files(paste0("/Volumes/TOSHIBA EXT/ANUClimateV2/aus_", var,"_day_v2_stable/", year), pattern = ".flt", full.names = T)
+  a = a[1:length(a)]
+  b = c()
+  for (i in a) {
+    b <- c(b, rast(i) %>% resample(biasfile))
+  }
+  rast(b) %>% terra::mean() %>% writeRaster(paste0("ANUCLIMMeans/", var, "1985-1999/", year,".asc"), overwrite = T)
+}
+
+yearlist = c(1985:2000)
+varlist = c("mint", "maxt", "rain", "vpd")
+
+for (i in varlist){
+  lapply(yearlist, years.mean, i)
+}
+
+lapply(yearlist, years.mean, "rain")
+years.mean(1991, "rain")
+```
+
+Average values across later years to make layers for projection based on climate from 1980 - 1985 
+```{r}
+fiveyears.mean <- function(x) {list <- list.files(paste0("/Users/u6638201/Desktop/Maxent/ANUCLIMMeans/", x,"1980-1984/"), pattern = ".asc$", full.names = T)
+mean = rast(list) %>% terra::mean() %>% raster()
+x[is.na(x)] <- -9999
+writeRaster(mean, paste0("ANUCLIM", x, "_mean.asc"), overwrite = TRUE)
+}
+
+for (i in varlist){
+  fiveyears.mean(i)
+}
+
+```
+
+
+
+

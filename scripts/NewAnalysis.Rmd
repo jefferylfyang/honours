@@ -1,0 +1,254 @@
+---
+title: "NewAnalysis"
+output: html_document
+---
+1. Create environment layers for each year of 1980 - 2015
+- NDays5
+- NDays35
+- Mint
+- Maxt
+- Rain 
+
+- Change in NDays5 (over 20 years)
+- 
+2. Create Maxent layer for each year of 1980 - 2015 using projections and identical base seed
+3. Write function to calculate slope value as delta for 20 years from date of collection 
+4. Run MRM for time + distance + change in Maxent model
+5. Run MRM for time + distance + Maxent model itself 
+6. Use these models to predict how genetic diversity will change in the future 
+
+Create landcover layers for each year 1980 - 2015
+```{r}
+library(ncdf4)
+library(terra) # package for spatraster manipulation
+library(raster) # package for raster manipulation
+library(rgdal) # package for geospatial analysis
+library(ggplot2) # package for plotting
+library(maptools)
+library(magrittr) #piping
+
+#Setup environment
+setwd("~/Desktop/LandCover")
+ld_states <- nc_open("~/Desktop/LandCover/LUH2_GCB2019_states.nc4")
+
+#Set extents
+lon <- ncvar_get(ld_states, "lon")
+lon[lon > 180] <- lon[lon > 180] - 360
+lat <- ncvar_get(ld_states, "lat", verbose = F)
+t <- ncvar_get(ld_states, "time")
+extent_aus <- ext(110, 158, -46, -9)
+world = ext(min(lon), max(lon), min(lat), max(lat))
+temp <- rast("/Users/u6638201/MaxEnt/biasfile_passerine_preserved.asc")
+
+#function to retrieve rasterlayers from array
+get.raster <- function(x, y, z) {
+  a = x - 849
+  b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% crop(extent_aus)  %>% resample(temp) 
+  b[is.na(b)] <- -9999
+  writeRaster(b, paste0("~/Desktop/LandCover/1980-2015_ascs/", x,"/", z,".asc"), overwrite = T)
+}
+
+
+#variable setup
+varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
+yearlist <- c(1980:2015)
+
+
+#for loop to run get rasters from range of yars in yearlist
+for (i in varlist) {
+  array = ncvar_get(ld_states, i)
+  rast.list = lapply(yearlist, get.raster, y = array, z = i)
+}
+
+
+```
+
+Create climate layers for each year 1980 - 2015 (CSIROGriddedData)
+```{r}
+#download 
+yearlist1 <- c(1969:2015)
+for (i in yearlist1) {
+download.file(paste0("https://dapds00.nci.org.au/thredds/fileServer/zv2/agcd/v1/tmax/mean/r005/01month/agcd_v1_tmax_mean_r005_monthly_", i, ".nc"), paste0("~/Desktop/ClimDat/tmaxMonthMean/", i, ".nc"))
+}
+
+for (i in yearlist1) {
+download.file(paste0("https://dapds00.nci.org.au/thredds/fileServer/zv2/agcd/v1/tmax/mean/r005/01day/agcd_v1_tmax_mean_r005_daily_", i, ".nc"), paste0("~/Desktop/ClimDat/tmaxDayMean/", i, ".nc"))
+}
+
+for (i in yearlist1) {
+download.file(paste0("https://dapds00.nci.org.au/thredds/fileServer/zv2/agcd/v1/tmin/mean/r005/01month/agcd_v1_tmin_mean_r005_monthly_", i, ".nc"), paste0("~/Desktop/ClimDat/tminMonthMean/", i, ".nc"))
+}
+
+for (i in yearlist1) {
+download.file(paste0("https://dapds00.nci.org.au/thredds/fileServer/zv2/agcd/v1/tmin/mean/r005/01day/agcd_v1_tmin_mean_r005_daily_", i, ".nc"), paste0("~/Desktop/ClimDat/tminDayMean/", i, ".nc"))
+}
+
+for (i in yearlist1) {
+download.file(paste0("https://dapds00.nci.org.au/thredds/fileServer/zv2/agcd/v1/precip/total/r005/01day/agcd_v1_precip_total_r005_daily_", i, ".nc"), paste0("~/Desktop/ClimDat/rainTotal/", i, ".nc"))
+}
+```
+
+
+```{r}
+#calculate Ndays5 1984 is the earliest sample which means for changes we need to calculate change over 1973 which means we need to calculate a 5 year average from which means the earliest year we data from is actually 1969
+#Exclude Tmean as it is highly correlated with other variables
+library(ncdf4)
+library(terra) # package for spatraster manipulation
+library(raster) # package for raster manipulation
+library(rgdal) # package for geospatial analysis
+library(ggplot2) # package for plotting
+library(maptools)
+library(magrittr) #piping
+
+
+tminday1980 <- nc_open("~/Desktop/ClimDat/tminDayMean/1980.asc")
+lon <- ncvar_get(tminday1980, "lon")
+lon[lon > 180] <- lon[lon > 180] - 360
+lat <- ncvar_get(tminday1980, "lat", verbose = F)
+t <- ncvar_get(tminday1980, "time")
+world = ext(min(lon), max(lon), min(lat), max(lat))
+extent_aus <- ext(110, 158, -46, -9)
+temp <- rast("/Users/u6638201/MaxEnt/biasfile_passerine_preserved.asc")
+```
+
+
+```{r}
+#first calculate number of days below 5 in a year
+
+#then average across 5 years  
+
+#calculate NDays35
+
+get.N5 <- function(year){ 
+  tmin <- nc_open(paste0("~/Desktop/ClimDat/tminDayMean/", year,".asc"))
+  rast.array <- ncvar_get(tmin, "tmin") 
+  rast.brick = rast.array %>%
+    rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") 
+  N5day = (sum(rast.brick < 5)) %>% 
+    t() %>% 
+    flip(direction='v') %>% 
+    set.ext(world) %>% 
+    crop(extent_aus) %>% 
+    resample(temp) %>%
+    writeRaster(paste0("~/Desktop/ClimDat/NDays5/", year, ".asc"), overwrite = T)
+}
+
+get.N35 <- function(year){ 
+  tmax <- nc_open(paste0("~/Desktop/ClimDat/tmaxDayMean/", year,".asc"))
+  rast.array <- ncvar_get(tmax, "tmax") 
+  rast.brick = rast.array %>%
+    rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") 
+  N5day = (sum(rast.brick < 5)) %>% 
+    t() %>% 
+    flip(direction='v') %>% 
+    set.ext(world) %>% 
+    crop(extent_aus) %>% 
+    resample(temp) %>%
+    writeRaster(paste0("~/Desktop/ClimDat/NDays35/", year, ".asc"), overwrite = T)
+}
+
+
+lapply(yearlist1, get.N5)
+lapply(yearlist1, get.N35)
+
+
+
+
+```
+
+Make change in niche space layers 
+
+```{r}
+#### CHANGE IN MEAN TEMPERATURE ####
+
+Change.Tmean <- read.csv("Tmean.ForChange.csv", header = T)
+summary(Change.Tmean)
+
+# these are missing from this data set:  "SAM9","SAM23", "SAM24", "SAM22", "SAM10", "SAM7"  
+sample.list <- c("ANWC100","ANWC101","ANWC102","ANWC103","ANWC104","ANWC105","ANWC106","ANWC107","ANWC108","ANWC109","ANWC110","ANWC112","ANWC113","ANWC115","ANWC116",	"ANWC117","ANWC118","ANWC119","ANWC126","ANWC128","ANWC129","ANWC130","ANWC131","ANWC132","ANWC133","ANWC134","ANWC135","ANWC136","ANWC137","ANWC138","ANWC139","ANWC140","ANWC141","ANWC142","ANWC143","ANWC144","ANWC145","ANWC146","ANWC147","ANWC148","ANWC150","ANWC151","ANWC152","ANWC153","ANWC154","ANWC155","ANWC156","ANWC157","ANWC158","ANWC159","ANWC160","ANWC161","ANWC162","ANWC163","ANWC168","ANWC170","ANWC66","ANWC67","ANWC68","ANWC69","ANWC71","ANWC72","ANWC73","ANWC75","ANWC77","ANWC78","ANWC79","ANWC80","ANWC81","ANWC84","ANWC85","ANWC88","ANWC90","ANWC92","ANWC94","SAM11","SAM12","SAM14","SAM15","SAM16","SAM17","SAM18","SAM19","SAM20","SAM21","SAM25","SAM26","SAM27","SAM28","SAM29", "SAM30","SAM31","SAM32","SAM33","SAM34","SAM35","SAM36","SAM37","SAM38","SAM39","SAM41", "SAM44","SAM45","SAM46","SAM8","WAM55","WAM56","WAM57","WAM58","WAM59","WAM60","WAM63","WAM64")
+
+names(sample.list) <- c("sample") # couldn't find object "sample" before
+
+Model.sample <- data.frame()  # creates datafame fresh each time model is run, so don't add to previous file
+for (sample in sample.list)                  #creates loop defined by curley brackets
+{                       
+  sample.m1 <- lm(Tmean ~ scale(YearJJ, scale=FALSE),  
+                 data = subset(Change.Tmean, SAMPLE.ID==sample))
+  #summary(sample.m1)
+  sample.s1 <-cbind(sample, intercept = sample.m1$coefficients[1], coefYear = sample.m1$coefficients[2], 
+                   df.residual = sample.m1$df.residual, adj.r.square = summary(sample.m1)$adj.r.squared, 
+                   df = summary(sample.m1)$df[2], fstat = summary(sample.m1)$fstatistic[1], pvalue = summary(sample.m1)$coefficients[2,4])  
+  Model.sample <-rbind(Model.sample, sample.s1)  # saves summary to file
+}
+
+rownames(Model.sample) <- 1:length(rownames(Model.sample))  # this overwrites the first column, and numbers rows sequentially 
+write.csv(Model.sample,"ChangeMeanTemp.csv")
+```
+
+
+Open ANUCLIM files from online & Average across years for 1960-1979 for all variables
+```{r}
+meanlist <- c()
+variable.list <- c('frst', 'pw', 'rain', 'srad', 'tavg', 'tmax', 'tmin', 'vp', 'vpd')
+years <- c(1960:1979)
+months <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", 10:12)
+ANUClIMext <- ext(112, 154, -44,-9)
+
+nc.open <- function(year, month, variable) { #Function to get raster with inputs that can be iterated 
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(ANUClIMext) %>% crop(extent_aus)
+  b[is.na(b)] <- -9999
+  NAflag(b) <- -9999
+  return(b)
+}
+
+#%>% set.ext(extent_aus) %>% resample(temp)
+
+for (i in variable.list) {
+  x = lapply(years, nc.open, month = months, variable = i) 
+  c = rast(x) %>% mean #calculate average for an variable over years 1960-1979
+  writeRaster(c, paste0("ANUCLIM1960-1979/",i,"1960-1979mean.asc"), overwrite = T) #write this resultant raster to file
+}
+
+for (i in variable.list) {
+  x = lapply(months, nc.open, year = 1960, variable = i)
+  c = rast(x) %>% mean
+  writeRaster(c, paste0("ANUCLIMmeans/",i,"1960.asc"), overwrite = T)
+}
+```
+
+Do the same for landcover variables for 1960-1979
+```{r}
+
+#function to retrieve rasterlayers from array
+land.mean <- function(x, y, z) {
+  a = x - 849
+  b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% resample(temp) 
+  b[is.na(b)] <- -9999
+  NAflag(b) <- -9999
+  return(b)
+}
+
+
+#variable setup
+varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
+mean.yearlist <- c(1960:1979)
+
+
+#for loop to run get rasters from range of yars in yearlist
+for (i in varlist) {
+  array = ncvar_get(ld_states, i)
+  rast.list = lapply(mean.yearlist, land.mean, y = array, z = i)
+  rast(rast.list) %>% mean() %>% writeRaster(paste0("~/Desktop/LandCover/1960-1979Means/", i, ".asc"), overwrite = T)
+}
+```
+
+ 
+```{r}
+
+```
+
+```{r}
+
+```
+
