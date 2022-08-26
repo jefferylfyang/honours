@@ -38,7 +38,7 @@ lat <- ncvar_get(ld_states, "lat", verbose = F)
 t <- ncvar_get(ld_states, "time")
 extent_aus <- ext(110, 158, -46, -9)
 world = ext(min(lon), max(lon), min(lat), max(lat))
-temp <- rast("/Users/u6638201/MaxEnt/biasfile_passerine_preserved.asc")
+temp <- rast("/Users/u6638201/MaxEnt/biasfile.asc")
 
 #function to retrieve rasterlayers from array
 get.raster <- function(x, y, z) {
@@ -107,7 +107,7 @@ lon[lon > 180] <- lon[lon > 180] - 360
 lat <- ncvar_get(tminday1980, "lat", verbose = F)
 t <- ncvar_get(tminday1980, "time")
 world = ext(min(lon), max(lon), min(lat), max(lat))
-extent_aus <- ext(110, 158, -46, -9)
+extent_aus <- ext(112, 154, -44,-9)
 temp <- rast("/Users/u6638201/MaxEnt/biasfile_passerine_preserved.asc")
 ```
 
@@ -245,7 +245,26 @@ for (i in varlist) {
 
  
 ```{r}
+setwd("~/Honours/data/clim_data")
+meanlist <- c()
+variable.list <- c("frst", 'pw', 'rain', 'srad', 'tavg', 'tmax', 'tmin', 'vp', 'vpd')
+years <- c(1960:1979)
+months <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", 10:12)
 
+nc.open <- function(year, month, variable) { #Function to get raster with inputs that can be iterated
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(extent_aus) 
+  b[is.na(b)] <- -9999
+  return(b)
+}
+
+
+
+for (i in "frst") {
+  x = lapply(years, nc.open, month = months, variable = i)
+  c = rast(x) %>% mean #calculate average for an variable over years 1960-1979
+  writeRaster(c, paste0("ANUCLIM1960-1979/",i,"1960-1979meanOR.asc")) #write this resultant raster to file Original Resolution 
+}
 ```
 
 ```{r}

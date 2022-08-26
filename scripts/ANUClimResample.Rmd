@@ -108,6 +108,95 @@ for (i in varlist){
 
 ```
 
+Make Bioclim layers from ANUCLIM 
+
+```{r}
+library(magrittr)
+library(terra)
+library(raster)
+library(rgdal)
+library(ncdf4)
+library(httr)
+library(climates)
+library(data.table)
+
+setwd("~/Honours/data/clim_data")
+months <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", 10:12)
+bioclim.list <- c('tavg', 'tmax', 'tmin', 'rain')
+years <- c(1960:1979)
+extent_aus <- ext(112, 154, -44,-9)
+
+nc.open <- function(year, month, variable) { #Function to get raster with inputs that can be iterated
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(extent_aus)
+  b[is.na(b)] <- -9999
+  NAflag(b) <- -9999
+  return(b)
+}
+
+for (i in variable.list) {
+x = lapply(years, nc.open, month = months, variable = i)
+c = rast(x) %>% mean #calculate average for an variable over years 1960-1979
+writeRaster(c, paste0(i, "/ANUCLIMascs/1960-1979mean.asc")) #write this resultant raster to file
+}
+
+set_config(timeout(seconds = 100000000000000))
+
+for (i in bioclim.list) {
+  clim.dataframe <- data.frame(matrix(nrow=7050282, ncol=0))
+  for (ii in months){
+    clim.dataframe = lapply(years, nc.open, month = ii, variable = i) %>%
+    rast() %>%
+    mean() %>%
+    as.data.frame() %>%
+    cbind(clim.dataframe)
+  }
+  colnames(clim.dataframe) <- months
+  write.csv(clim.dataframe, paste0("BioClim_dataframes/", i,".csv"))
+}
+
+clim.dataframe <- data.frame(matrix(nrow=7050282, ncol=0))
+  for (ii in months){
+    clim.dataframe = lapply(years, nc.open, month = ii, variable = "tmax") %>%
+    rast() %>%
+    mean() %>%
+    as.data.frame() %>%
+    cbind(clim.dataframe)
+  }
+  colnames(clim.dataframe) <- months
+  write.csv(clim.dataframe, paste0("BioClim_dataframes/tmax.csv"), overwrite = T)
+  
+clim.dataframe <- data.frame(matrix(nrow=7050282, ncol=0))
+  for (ii in "05"){
+    clim.dataframe = lapply(years, nc.open, month = ii, variable = "rain") %>%
+    rast() %>%
+    mean() %>%
+    as.data.frame() %>%
+    cbind(clim.dataframe)
+  }
+  colnames(clim.dataframe) <- months
+  write.csv(clim.dataframe, paste0("BioClim_dataframes/rain.csv"), overwrite = T)
+  
+bioclim <- bioclim2(tmin = fread("~/Honours/data/clim_data/BioClim_dataframes/tmin.csv", select = c(2:13)), tmax = fread("~/Honours/data/clim_data/BioClim_dataframes/tmax.csv", select = c(2:13)), prec = fread("~/Honours/data/clim_data/BioClim_dataframes/rain.csv", select = c(2:13)), tmean = fread("~/Honours/data/clim_data/BioClim_dataframes/tavg.csv", select = c(2:13)), cov = F, files.as.inputs = F)
+bioclim
+
+bioclim.xy <- nc.open(1960, "01", "tmax") %>%
+  as.data.frame(xy = T) 
+
+bioclim.xy <- cbind(bioclim.xy$x, bioclim.xy$y) 
+colnames(bioclim.xy) <- c("lon", "lat")
+
+bioclim.dataframe <- cbind(bioclim.xy, bioclim)
+bioclim.rast <- rast(bioclim.dataframe, type = "xyz")
+bioclim.rast[is.na(bioclim.rast)] <- -9999
+#NAflag(bioclim.rast) <- -9999
+names.list <- names(bioclim.rast)
+
+for (i in names.list) {
+  writeRaster(subset(bioclim.rast, i), paste0("~/Honours/data/clim_data/ANUBIOCLIM_ascs/", i,".asc"), NAflag = -9999, overwrite = T)
+}
+
+```
 
 
 
