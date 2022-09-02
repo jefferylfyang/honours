@@ -1,0 +1,293 @@
+---
+title: "PrepDataRunMaxent"
+output: html_document
+date: "2022-09-02"
+---
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '~/Honours')
+```
+
+
+CLIMATE
+Load in packages and set up variables 
+```{r}
+library(ncdf4) #package for opening .nc files
+library(terra) # package for spatraster manipulation
+library(rgdal) # package for geospatial analysis
+library(magrittr) #package for piping
+library(data.table) #package for easy reading in csvs
+library(climates) #package for making bioclim variables
+library(ntbox) #package for running maxent
+library(stringr) #package for manipulating strings
+
+varlist <- c('tavg', 'tmax', 'tmin', 'rain')
+extent_aus <- ext(112, 154, -44,-9)
+months <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", 10:12) #vector of months
+yearlist <- c(1980:2015) #vector of years
+
+
+```
+
+Functions to download and open files from database for ANUCLIM data
+```{r}
+
+nc.open <- function(month, variable, year) { #Function to get raster with inputs that can be iterated
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(extent_aus) %>% as.data.frame()
+  return(b)
+}
+
+nc.open.xy <- function(month, variable, year) { #Function to get raster with inputs that can be iterated
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(extent_aus) %>% as.data.frame(xy = T)
+  return(b)
+}
+```
+
+Make object for list of coordinates of all data
+``` {r}
+bioclim.xy <- nc.open.xy("01", "tmax", 1960) 
+bioclim.xy <- cbind(bioclim.xy$x, bioclim.xy$y) 
+colnames(bioclim.xy) <- c("lon", "lat")
+```
+
+Loop to download and process ANUCLIM data into bioclim variables as raster layers 
+```{r}
+for (i in yearlist) {
+  bioclimdf.list = list()
+  for (ii in varlist) {
+    temp.df = data.frame(matrix(nrow=7050282, ncol=0))
+    temp.df = lapply(months, nc.open, variable = ii, year = i) %>%
+      bind_cols()
+    bioclimdf.list[[ii]] = temp.df
+  }
+  bioclim <- bioclim2(bioclimdf.list$tmin, bioclimdf.list$tmax, bioclimdf.list$rain, bioclimdf.list$tavg, files.as.inputs = F)
+  bioclim.dataframe <- cbind(bioclim.xy, bioclim)
+  bioclim.rast <- rast(bioclim.dataframe, type = "xyz")
+  bioclim.rast[is.na(bioclim.rast)] <- -9999
+  names.list <- names(bioclim.rast)
+}
+
+# Write to disk
+for (iii in names.list) {
+  writeRaster(subset(bioclim1.rast, iii), paste0("data/proj_layers/temp/", iii,".asc"), NAflag = -9999, overwrite = T)
+}
+```
+
+Calculate means for years 1960-1979 to make the base maxent model (climate)
+Set up environment
+```{r}
+bioclim.list <- c('tavg', 'tmax', 'tmin', 'rain')
+years <- c(1960:1979) 
+
+nc.open <- function(year, month, variable) { #Function to get raster with inputs that can be iterated
+  a = nc_open(paste0("https://dapds00.nci.org.au/thredds/dodsC/gh70/ANUClimate/v2-0/stable/month/", variable,"/", year, "/ANUClimate_v2-0_", variable, "_monthly_", year, month,".nc"))
+  b = ncvar_get(a, variable) %>% t() %>% rast(crs = "WGS84") %>% set.ext(extent_aus)
+  b[is.na(b)] <- -9999
+  NAflag(b) <- -9999
+  return(b)
+}
+```
+
+Loop to create dataframes for input variables, function "bioclim2" takes dataframes as inputs
+```{r}
+for (i in bioclim.list) { #for each input variable (tavg, tmas, tmin, rain)
+  clim.dataframe <- data.frame(matrix(nrow=7050282, ncol=0)) #make empty dataframe 
+  for (ii in months){
+    clim.dataframe = lapply(years, nc.open, month = ii, variable = i) %>%
+    rast() %>% #make rasters of all 
+    mean() %>% #average over all months of the year
+    as.data.frame() %>% #coerce to dataframe
+    cbind(clim.dataframe) #add to dataframe
+  }
+  colnames(clim.dataframe) <- months
+  write.csv(clim.dataframe, paste0("BioClim_dataframes/", i,".csv")) #write to disk
+}
+
+```
+
+Read in input dataframes
+```{r}
+bioclim <- bioclim2(tmin = fread("data/clim_data/BioClim_dataframes/tmin.csv", select = c(2:13)), tmax = fread("data/clim_data/BioClim_dataframes/tmax.csv", select = c(2:13)), prec = fread("data/clim_data/BioClim_dataframes/rain.csv", select = c(2:13)), tmean = fread("data/clim_data/BioClim_dataframes/tavg.csv", select = c(2:13)), cov = F, files.as.inputs = F)
+
+```
+
+Convert dataframe to raster and write into dirctory 
+```{r}
+bioclim.dataframe <- cbind(bioclim.xy, bioclim) #give coordinates
+bioclim.rast <- rast(bioclim.dataframe, type = "xyz") #convert results of bioclim2 function to raster
+bioclim.rast[is.na(bioclim.rast)] <- -9999
+names.list <- names(bioclim.rast)
+
+for (i in names.list) {
+  writeRaster(subset(bioclim.rast, i), paste0("~/Honours/data/clim_data/ANUBIOCLIM_ascs/", i,".asc"), NAflag = -9999, overwrite = T)
+}
+```
+
+LANDCOVER
+
+Set up environment
+```{r}
+ld_states <- nc_open("data/land_data/LUH2_GCB2019_states.nc4") #load in .nc file with landcover data
+
+#Set extents
+lon <- ncvar_get(ld_statesA, "lon")
+lon[lon > 180] <- lon[lon > 180] - 360
+lat <- ncvar_get(ld_statesA, "lat", verbose = F)
+t <- ncvar_get(ld_statesA, "time")
+extent_aus <- ext(110, 158, -46, -9) #different from above because of  cropping needs
+world = ext(min(lon), max(lon), min(lat), max(lat))
+temp <- rast("/Users/u6638201/MaxEnt/biasfile.asc") #use as template for resample
+varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn", "secmb", "urban")
+
+```
+
+Function to retrieve rasterlayers from array and write to disk
+```{r}
+get.raster <- function(x, y, z) {
+    a = x - 849
+    b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% crop(extent_aus)  %>% resample(temp, method = "rms") 
+    b[is.na(b)] <- -9999
+    writeRaster(b, paste0("data/land_data/1980-2015_ascs/", x,"/", z,".asc"), overwrite = T, NAflag = -9999)
+}
+```
+
+Loop to make layers
+```{r}
+for (i in varlist) {
+  array = ncvar_get(ld_states, i)
+  lapply(yearlist, get.raster, y = array, z = i)
+}
+```
+
+Calculate means for years 1960-1979 to make the base maxent model (landcover)
+
+Function to calculate means
+```{r}
+land.mean <- function(x, y, z) {
+  a = x - 849
+  b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% resample(temp, method = "rms") 
+  b[is.na(b)] <- -9999
+  NAflag(b) <- -9999
+  return(b)
+}
+```
+
+Loop to make layers and write to disk
+```{r}
+for (i in varlist) {
+  array = ncvar_get(ld_states, i)
+  rast.list = lapply(years, land.mean, y = array, z = i) #using years object from earlier
+  b = rast(rast.list) %>% mean() 
+  b[is.na(b)] <- -9999
+  writeRaster(b, paste0("data/land_data/land_layers/", i, ".asc"), overwrite = T, NAflag = -9999)
+}
+```
+
+MAXENT
+(see vscode for solution that was used for climate layers)
+Run maxent for landcover
+```{r}
+for (i in yearlist){
+  maxent_call(
+    "~/Desktop/maxent-2",
+    features = c("h","p"),
+    environmentallayers = "data/land_data/land_layers",
+    samplesfile = "data/bird_data/combined_1960_1979_30km_thin1.csv",
+    outputdirectory = "outputs/proj_layers/temp/",
+    projectionlayers = paste0("data/land_data/1980-2015_ascs/",i),
+    extrapolate = T,
+    askoverwrite = T,
+    randomtestpoints = 25,
+    betamultiplier = 0.5,
+    biasfile = "data/biasfile.asc",
+    doclamp = T,
+    randomseed = T,
+    threads = 6)
+  
+  rast(paste0("outputs/proj_layers/temp/land_layers_bmult_0.5_hp/Malurus_", i,".asc")) %>%
+    writeRaster(paste0("outputs/land_max_proj_norep/", i, ".tif"), overwrite = T)
+  unlink("outputs/proj_layers/temp/land_layers_bmult_0.5_hp", recursive = T)
+}
+```
+
+Extract Data for Bird Samples
+
+Climate
+
+Read in projections in raster format for 1980 - 2015
+```{r}
+output.file.list <- list.files("outputs/proj_layers/years", full.names = T) 
+output.rasters <- list() #make empty list  
+
+for (i in output.file.list) { #fill with rasters of maxent projections
+  output.rasters = c(output.rasters, rast(i))
+}
+
+names(output.rasters) <- c(1980:2020) #set raster names so they can be indexed
+
+```
+
+Read in sample ID's and locations
+```{r}
+bird.data <- read.csv("data/bird_data/Honours Thesis Metadata v2.csv") #Read in sample metadata 
+bird.data$Year <- str_sub(bird.data$Date, start = -4) #get years from date format and write to column
+bird.data$Year[bird.data$Year == ""] = NA
+bird.data.trimmed <- cbind(bird.data$EXP.ID, bird.data$Longitude, bird.data$Latitude, bird.data$Year) %>% 
+  na.omit() %>% #Trim data down to just ID's and Locations 
+  as.data.frame()
+```
+
+Extract points from projected layers by sample ID and collection year
+```{r}
+bird.id <- bird.data.trimmed$V1 #Make list of sample ID's to index data by
+bird_values <- c() 
+
+for (i in bird.id) {
+  year = bird.data.trimmed$V4[bird.data.trimmed$V1==i]
+  xy = matrix(c(as.numeric(bird.data.trimmed$V2[bird.data.trimmed$V1==i]), 
+                as.numeric(bird.data.trimmed$V3[bird.data.trimmed$V1==i])), ncol = 2)
+  bird_values = extract(output.rasters[[year]], xy) %>% 
+    c(bird_values, .) 
+}
+
+bird_values <- bird_values %>% unlist() %>% data.frame() #Transform to dataframe
+rownames(bird_values) <- bird.id
+
+bird_values <- cbind(bird.data.trimmed, bird_values) %>% na.omit #Add metadata
+write.csv(bird_values, "outputs/sampleClimMaxentValues1980_2020.csv") #Write to disk
+```
+
+Extract for landcover 
+
+Read in projections in raster format for 1980 - 2015
+```{r}
+output.file.list <- list.files("outputs/land_max_proj_norep", full.names = T) 
+output.rasters <- c() # make empty list  
+
+for (i in output.file.list) { #fill with rasters of maxent projections
+  output.rasters = c(output.rasters, rast(i))
+}
+
+```
+
+Extract points from projected layers by sample ID and collection year
+```{r}
+bird.id <- bird.data.trimmed$V1 #Make list of sample ID's to index data by
+bird_values <- c() 
+
+for (i in bird.id) {
+  year = bird.data.trimmed$V4[bird.data.trimmed$V1==i]
+  xy = matrix(c(as.numeric(bird.data.trimmed$V2[bird.data.trimmed$V1==i]), 
+                as.numeric(bird.data.trimmed$V3[bird.data.trimmed$V1==i])), ncol = 2)
+  bird_values = extract(output.rasters[[year]], xy) %>% 
+    c(bird_values, .) 
+}
+
+bird_values <- bird_values %>% unlist() %>% data.frame() #Transform to dataframe
+rownames(bird_values) <- bird.id
+
+bird_values <- cbind(bird.data.trimmed, bird_values) %>% na.omit #Add metadata
+write.csv(bird_values, "outputs/sampleLandMaxentValues1980_2020.csv") #Write to disk
+```
+

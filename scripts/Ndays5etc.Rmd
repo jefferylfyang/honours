@@ -28,8 +28,8 @@ library(maptools)
 library(magrittr) #piping
 
 #Setup environment
-setwd("~/Desktop/LandCover")
-ld_states <- nc_open("~/Desktop/LandCover/LUH2_GCB2019_states.nc4")
+setwd("~/Honours")
+ld_states <- nc_open("data/land_data/LUH2_GCB2019_states.nc4")
 
 #Set extents
 lon <- ncvar_get(ld_states, "lon")
@@ -43,21 +43,21 @@ temp <- rast("/Users/u6638201/MaxEnt/biasfile.asc")
 #function to retrieve rasterlayers from array
 get.raster <- function(x, y, z) {
   a = x - 849
-  b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% crop(extent_aus)  %>% resample(temp) 
+  b = y[a,,] %>% t() %>% rast(crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0") %>% flip(direction='v') %>% set.ext(world) %>% crop(extent_aus)  %>% resample(temp, method = "rms") 
   b[is.na(b)] <- -9999
-  writeRaster(b, paste0("~/Desktop/LandCover/1980-2015_ascs/", x,"/", z,".asc"), overwrite = T)
+  writeRaster(b, paste0("data/land_data/1980-2015_ascs/", x,"/", z,".asc"), overwrite = T, NAflag = -9999)
 }
 
 
 #variable setup
 varlist <- c("pastr", "primf", "primn", "range", "secdf", "secdn","secma", "secmb", "urban")
-yearlist <- c(1980:2015)
+yearlist <- list(1980:2020)
 
 
-#for loop to run get rasters from range of yars in yearlist
-for (i in varlist) {
+#for loop to run get rasters from range of years in yearlist
+for (i in "pastr") {
   array = ncvar_get(ld_states, i)
-  rast.list = lapply(yearlist, get.raster, y = array, z = i)
+  lapply(yearlist, get.raster, y = array, z = i)
 }
 
 
